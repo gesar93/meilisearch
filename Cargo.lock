@@ -3323,6 +3323,7 @@ dependencies = [
  "rayon",
  "regex",
  "reqwest",
+ "roaring",
  "rustls 0.21.12",
  "rustls-pemfile",
  "segment",

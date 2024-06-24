@@ -21,6 +21,7 @@ static LEVDIST1: Lazy<LevBuilder> = Lazy::new(|| LevBuilder::new(1, true));
 static LEVDIST2: Lazy<LevBuilder> = Lazy::new(|| LevBuilder::new(2, true));
 
 pub mod facet;
+pub mod federated;
 mod fst_utils;
 pub mod hybrid;
 pub mod new;
@@ -52,6 +53,7 @@ pub struct Search<'a> {
     semantic: Option<SemanticSearch>,
     time_budget: TimeBudget,
     ranking_score_threshold: Option<f64>,
+    input_candidates: Option<&'a RoaringBitmap>,
 }
 
 impl<'a> Search<'a> {
@@ -74,6 +76,7 @@ impl<'a> Search<'a> {
             semantic: None,
             time_budget: TimeBudget::max(),
             ranking_score_threshold: None,
+            input_candidates: None,
         }
     }
 
@@ -137,6 +140,11 @@ impl<'a> Search<'a> {
         self
     }
 
+    pub fn input_candidates(&mut self, input_candidates: &'a RoaringBitmap) -> &mut Search<'a> {
+        self.input_candidates = Some(input_candidates);
+        self
+    }
+
     #[cfg(test)]
     pub fn geo_sort_strategy(&mut self, strategy: new::GeoSortStrategy) -> &mut Search<'a> {
         self.geo_strategy = strategy;
@@ -163,7 +171,11 @@ impl<'a> Search<'a> {
     pub fn execute_for_candidates(&self, has_vector_search: bool) -> Result<RoaringBitmap> {
         if has_vector_search {
             let ctx = SearchContext::new(self.index, self.rtxn)?;
-            filtered_universe(ctx.index, ctx.txn, &self.filter)
+            let filtered_universe = filtered_universe(ctx.index, ctx.txn, &self.filter)?;
+            Ok(match self.input_candidates {
+                Some(input_candidates) => filtered_universe & input_candidates,
+                None => filtered_universe,
+            })
         } else {
             Ok(self.execute()?.candidates)
         }
@@ -189,7 +201,10 @@ impl<'a> Search<'a> {
             }
         }
 
-        let universe = filtered_universe(ctx.index, ctx.txn, &self.filter)?;
+        let mut universe = filtered_universe(ctx.index, ctx.txn, &self.filter)?;
+        if let Some(input_candidates) = self.input_candidates {
+            universe &= input_candidates;
+        }
         let PartialSearchResult {
             located_query_terms,
             candidates,
@@ -272,6 +287,7 @@ impl fmt::Debug for Search<'_> {
             semantic,
             time_budget,
             ranking_score_threshold,
+            input_candidates: _,
         } = self;
         f.debug_struct("Search")
             .field("query", query)

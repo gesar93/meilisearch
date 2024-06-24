@@ -243,6 +243,8 @@ InvalidSearchAttributesToHighlight    , InvalidRequest       , BAD_REQUEST ;
 InvalidSimilarAttributesToRetrieve    , InvalidRequest       , BAD_REQUEST ;
 InvalidSimilarRetrieveVectors         , InvalidRequest       , BAD_REQUEST ;
 InvalidSearchAttributesToRetrieve     , InvalidRequest       , BAD_REQUEST ;
+InvalidSearchWeight                   , InvalidRequest       , BAD_REQUEST ;
+InvalidSearchFederated                , InvalidRequest       , BAD_REQUEST ;
 InvalidSearchRankingScoreThreshold    , InvalidRequest       , BAD_REQUEST ;
 InvalidSimilarRankingScoreThreshold   , InvalidRequest       , BAD_REQUEST ;
 InvalidSearchRetrieveVectors          , InvalidRequest       , BAD_REQUEST ;
