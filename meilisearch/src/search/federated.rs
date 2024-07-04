@@ -317,13 +317,20 @@ pub fn perform_federated_search(
     let mut semantic_hit_count = None;
     let mut results_by_index = Vec::with_capacity(queries_by_index.len());
     for (index_uid, queries) in queries_by_index {
-        let index = index_scheduler.index(&index_uid).map_err(|err| {
-            let mut err = ResponseError::from(err);
-            // Patch the HTTP status code to 400 as it defaults to 404 for `index_not_found`, but
-            // here the resource not found is not part of the URL.
-            err.code = StatusCode::BAD_REQUEST;
-            err
-        })?;
+        let index = match index_scheduler.index(&index_uid) {
+            Ok(index) => index,
+            Err(err) => {
+                let mut err = ResponseError::from(err);
+                // Patch the HTTP status code to 400 as it defaults to 404 for `index_not_found`, but
+                // here the resource not found is not part of the URL.
+                err.code = StatusCode::BAD_REQUEST;
+                if let Some(query) = queries.first() {
+                    err.message =
+                        format!("Inside `.queries[{}]`: {}", query.query_index, err.message);
+                }
+                return Err(err);
+            }
+        };
 
         // Important: this is the only transaction we'll use for this index during this federated search
         let rtxn = index.read_txn()?;
