@@ -132,6 +132,34 @@ static NESTED_DOCUMENTS: Lazy<Value> = Lazy::new(|| {
     ])
 });
 
+static FRUITS_DOCUMENTS: Lazy<Value> = Lazy::new(|| {
+    json!([
+        {
+            "name": "Exclusive sale: green apple",
+            "id": "green-apple-boosted",
+            "BOOST": true
+        },
+        {
+            "name": "Pear",
+            "id": "pear",
+        },
+        {
+            "name": "Red apple gala",
+            "id": "red-apple-gala",
+        },
+        {
+            "name": "Exclusive sale: Red Tomato",
+            "id": "red-tomatoes-boosted",
+            "BOOST": true
+        },
+        {
+            "name": "Exclusive sale: Red delicious apple",
+            "id": "red-delicious-boosted",
+            "BOOST": true,
+        }
+    ])
+});
+
 #[actix_rt::test]
 async fn simple_placeholder_search() {
     let server = Server::new().await;
