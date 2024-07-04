@@ -1295,3 +1295,209 @@ async fn federation_filter() {
     }
     "###);
 }
+
+#[actix_rt::test]
+async fn federation_invalid_weight() {
+    let server = Server::new().await;
+
+    let index = server.index("fruits");
+
+    let documents = FRUITS_DOCUMENTS.clone();
+    let (value, _) = index.add_documents(documents, None).await;
+    index.wait_task(value.uid()).await;
+
+    let (value, _) = index
+        .update_settings(
+            json!({"searchableAttributes": ["name"], "filterableAttributes": ["BOOST"]}),
+        )
+        .await;
+    index.wait_task(value.uid()).await;
+
+    let (response, code) = server
+        .multi_search(json!({"federation": {}, "queries": [
+        {"indexUid" : "fruits", "q": "apple red", "filter": "BOOST = true", "showRankingScore": true, "federated": {"weight": 3.0}},
+        {"indexUid": "fruits", "q": "apple red", "showRankingScore": true, "federated": {"weight": -12}},
+        ]}))
+        .await;
+    snapshot!(code, @"400 Bad Request");
+    insta::assert_json_snapshot!(response, { ".processingTimeMs" => "[time]" }, @r###"
+    {
+      "message": "Invalid value at `.queries[1].federated.weight`: the value of `weight` is invalid, expected a positive float (>= 0.0).",
+      "code": "invalid_multi_search_weight",
+      "type": "invalid_request",
+      "link": "https://docs.meilisearch.com/errors#invalid_multi_search_weight"
+    }
+    "###);
+}
+
+#[actix_rt::test]
+async fn federation_null_weight() {
+    let server = Server::new().await;
+
+    let index = server.index("fruits");
+
+    let documents = FRUITS_DOCUMENTS.clone();
+    let (value, _) = index.add_documents(documents, None).await;
+    index.wait_task(value.uid()).await;
+
+    let (value, _) = index
+        .update_settings(
+            json!({"searchableAttributes": ["name"], "filterableAttributes": ["BOOST"]}),
+        )
+        .await;
+    index.wait_task(value.uid()).await;
+
+    let (response, code) = server
+        .multi_search(json!({"federation": {}, "queries": [
+        {"indexUid" : "fruits", "q": "apple red", "filter": "BOOST = true", "showRankingScore": true, "federated": {"weight": 3.0}},
+        {"indexUid": "fruits", "q": "apple red", "showRankingScore": true, "federated": {"weight": 0.0} },
+        ]}))
+        .await;
+    snapshot!(code, @"200 OK");
+    insta::assert_json_snapshot!(response, { ".processingTimeMs" => "[time]" }, @r###"
+    {
+      "hits": [
+        {
+          "name": "Exclusive sale: Red delicious apple",
+          "id": "red-delicious-boosted",
+          "BOOST": true,
+          "_federation": {
+            "indexUid": "fruits",
+            "sourceQuery": 0,
+            "weightedRankingScore": 2.7281746031746033
+          },
+          "_rankingScore": 0.9093915343915344
+        },
+        {
+          "name": "Exclusive sale: green apple",
+          "id": "green-apple-boosted",
+          "BOOST": true,
+          "_federation": {
+            "indexUid": "fruits",
+            "sourceQuery": 0,
+            "weightedRankingScore": 1.318181818181818
+          },
+          "_rankingScore": 0.4393939393939394
+        },
+        {
+          "name": "Red apple gala",
+          "id": "red-apple-gala",
+          "_federation": {
+            "indexUid": "fruits",
+            "sourceQuery": 1,
+            "weightedRankingScore": 0.0
+          },
+          "_rankingScore": 0.953042328042328
+        }
+      ],
+      "processingTimeMs": "[time]",
+      "limit": 20,
+      "offset": 0,
+      "estimatedTotalHits": 3
+    }
+    "###);
+}
+
+#[actix_rt::test]
+async fn federation_federated_contains_pagination() {
+    let server = Server::new().await;
+
+    let index = server.index("fruits");
+
+    let documents = FRUITS_DOCUMENTS.clone();
+    let (value, _) = index.add_documents(documents, None).await;
+    index.wait_task(value.uid()).await;
+
+    // fail when a federated query contains "limit"
+    let (response, code) = server
+        .multi_search(json!({"federation": {}, "queries": [
+        {"indexUid" : "fruits", "q": "apple red"},
+        {"indexUid": "fruits", "q": "apple red", "limit": 5},
+        ]}))
+        .await;
+    snapshot!(code, @"400 Bad Request");
+    insta::assert_json_snapshot!(response, { ".processingTimeMs" => "[time]" }, @r###"
+    {
+      "message": "Inside `.queries[1]`: Using pagination options is not allowed in federated queries.\n Hint: remove `limit` from query #1 or remove `federation: {}` from the request",
+      "code": "invalid_multi_search_query_pagination",
+      "type": "invalid_request",
+      "link": "https://docs.meilisearch.com/errors#invalid_multi_search_query_pagination"
+    }
+    "###);
+    // fail when a federated query contains "offset"
+    let (response, code) = server
+        .multi_search(json!({"federation": {}, "queries": [
+        {"indexUid" : "fruits", "q": "apple red"},
+        {"indexUid": "fruits", "q": "apple red", "offset": 5},
+        ]}))
+        .await;
+    snapshot!(code, @"400 Bad Request");
+    insta::assert_json_snapshot!(response, { ".processingTimeMs" => "[time]" }, @r###"
+    {
+      "message": "Inside `.queries[1]`: Using pagination options is not allowed in federated queries.\n Hint: remove `offset` from query #1 or remove `federation: {}` from the request",
+      "code": "invalid_multi_search_query_pagination",
+      "type": "invalid_request",
+      "link": "https://docs.meilisearch.com/errors#invalid_multi_search_query_pagination"
+    }
+    "###);
+    // fail when a federated query contains "page"
+    let (response, code) = server
+        .multi_search(json!({"federation": {}, "queries": [
+        {"indexUid" : "fruits", "q": "apple red"},
+        {"indexUid": "fruits", "q": "apple red", "page": 2},
+        ]}))
+        .await;
+    snapshot!(code, @"400 Bad Request");
+    insta::assert_json_snapshot!(response, { ".processingTimeMs" => "[time]" }, @r###"
+    {
+      "message": "Inside `.queries[1]`: Using pagination options is not allowed in federated queries.\n Hint: remove `page` from query #1 or remove `federation: {}` from the request",
+      "code": "invalid_multi_search_query_pagination",
+      "type": "invalid_request",
+      "link": "https://docs.meilisearch.com/errors#invalid_multi_search_query_pagination"
+    }
+    "###);
+    // fail when a federated query contains "hitsPerPage"
+    let (response, code) = server
+        .multi_search(json!({"federation": {}, "queries": [
+        {"indexUid" : "fruits", "q": "apple red"},
+        {"indexUid": "fruits", "q": "apple red", "hitsPerPage": 5},
+        ]}))
+        .await;
+    snapshot!(code, @"400 Bad Request");
+    insta::assert_json_snapshot!(response, { ".processingTimeMs" => "[time]" }, @r###"
+    {
+      "message": "Inside `.queries[1]`: Using pagination options is not allowed in federated queries.\n Hint: remove `hitsPerPage` from query #1 or remove `federation: {}` from the request",
+      "code": "invalid_multi_search_query_pagination",
+      "type": "invalid_request",
+      "link": "https://docs.meilisearch.com/errors#invalid_multi_search_query_pagination"
+    }
+    "###);
+}
+
+#[actix_rt::test]
+async fn federation_non_federated_contains_federation_option() {
+    let server = Server::new().await;
+
+    let index = server.index("fruits");
+
+    let documents = FRUITS_DOCUMENTS.clone();
+    let (value, _) = index.add_documents(documents, None).await;
+    index.wait_task(value.uid()).await;
+
+    // fail when a non-federated query contains "federated"
+    let (response, code) = server
+        .multi_search(json!({"queries": [
+        {"indexUid" : "fruits", "q": "apple red"},
+        {"indexUid": "fruits", "q": "apple red", "federated": {}},
+        ]}))
+        .await;
+    snapshot!(code, @"400 Bad Request");
+    insta::assert_json_snapshot!(response, { ".processingTimeMs" => "[time]" }, @r###"
+    {
+      "message": "Inside `.queries[1]`: Using `federated` is not allowed in a non-federated search.\n Hint: remove `federated` from query #1 or add `federation: {}` to the request.",
+      "code": "invalid_multi_search_query_federated",
+      "type": "invalid_request",
+      "link": "https://docs.meilisearch.com/errors#invalid_multi_search_query_federated"
+    }
+    "###);
+}
