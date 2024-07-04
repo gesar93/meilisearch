@@ -10,6 +10,7 @@ use serde::Serialize;
 use tracing::debug;
 
 use crate::analytics::{Analytics, MultiSearchAggregator};
+use crate::error::MeilisearchHttpError;
 use crate::extractors::authentication::policies::ActionPolicy;
 use crate::extractors::authentication::{AuthenticationError, GuardedData};
 use crate::extractors::sequential_extractor::SeqHandler;
@@ -102,8 +103,11 @@ pub async fn multi_search_with_post(
                     debug!(on_index = query_index, parameters = ?query, "Multi-search");
 
                     if federated.is_some() {
-                        /// FIXME: add error case
-                        panic!("federated is some in a non-federated query")
+                        return Err((
+                            MeilisearchHttpError::FederatedQueryInNonFederatedRequest(query_index)
+                                .into(),
+                            query_index,
+                        ));
                     }
 
                     let index = index_scheduler

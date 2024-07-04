@@ -237,14 +237,16 @@ InvalidIndexLimit                     , InvalidRequest       , BAD_REQUEST ;
 InvalidIndexOffset                    , InvalidRequest       , BAD_REQUEST ;
 InvalidIndexPrimaryKey                , InvalidRequest       , BAD_REQUEST ;
 InvalidIndexUid                       , InvalidRequest       , BAD_REQUEST ;
+InvalidMultiSearchFederated           , InvalidRequest       , BAD_REQUEST ;
+InvalidMultiSearchQueryFederated      , InvalidRequest       , BAD_REQUEST ;
+InvalidMultiSearchQueryPagination     , InvalidRequest       , BAD_REQUEST ;
+InvalidMultiSearchWeight              , InvalidRequest       , BAD_REQUEST ;
 InvalidSearchAttributesToSearchOn     , InvalidRequest       , BAD_REQUEST ;
 InvalidSearchAttributesToCrop         , InvalidRequest       , BAD_REQUEST ;
 InvalidSearchAttributesToHighlight    , InvalidRequest       , BAD_REQUEST ;
 InvalidSimilarAttributesToRetrieve    , InvalidRequest       , BAD_REQUEST ;
 InvalidSimilarRetrieveVectors         , InvalidRequest       , BAD_REQUEST ;
 InvalidSearchAttributesToRetrieve     , InvalidRequest       , BAD_REQUEST ;
-InvalidSearchWeight                   , InvalidRequest       , BAD_REQUEST ;
-InvalidSearchFederated                , InvalidRequest       , BAD_REQUEST ;
 InvalidSearchRankingScoreThreshold    , InvalidRequest       , BAD_REQUEST ;
 InvalidSimilarRankingScoreThreshold   , InvalidRequest       , BAD_REQUEST ;
 InvalidSearchRetrieveVectors          , InvalidRequest       , BAD_REQUEST ;
@@ -501,6 +503,12 @@ impl fmt::Display for deserr_codes::InvalidSearchSemanticRatio {
             f,
             "the value of `semanticRatio` is invalid, expected a float between `0.0` and `1.0`."
         )
+    }
+}
+
+impl fmt::Display for deserr_codes::InvalidMultiSearchWeight {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "the value of `weight` is invalid, expected a positive float (>= 0.0).")
     }
 }
 

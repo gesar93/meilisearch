@@ -10,7 +10,7 @@ use http::StatusCode;
 use index_scheduler::{IndexScheduler, RoFeatures};
 use meilisearch_types::deserr::DeserrJsonError;
 use meilisearch_types::error::deserr_codes::{
-    InvalidSearchLimit, InvalidSearchOffset, InvalidSearchWeight,
+    InvalidMultiSearchWeight, InvalidSearchLimit, InvalidSearchOffset,
 };
 use meilisearch_types::error::ResponseError;
 use meilisearch_types::milli;
@@ -23,20 +23,47 @@ use super::{
     prepare_search, AttributesFormat, HitMaker, HitsInfo, RetrieveVectors, SearchHit, SearchKind,
     SearchQuery, SearchQueryWithIndex,
 };
+use crate::error::MeilisearchHttpError;
 use crate::routes::indexes::search::search_kind;
 
 pub const DEFAULT_FEDERATED_WEIGHT: fn() -> f64 = || 1.0;
 
-#[derive(Debug, Clone, Copy, PartialEq, deserr::Deserr)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, deserr::Deserr)]
 #[deserr(error = DeserrJsonError, rename_all = camelCase, deny_unknown_fields)]
 pub struct Federated {
-    #[deserr(default = DEFAULT_FEDERATED_WEIGHT(), error = DeserrJsonError<InvalidSearchWeight>)]
-    pub weight: f64,
+    #[deserr(default, error = DeserrJsonError<InvalidMultiSearchWeight>)]
+    pub weight: Weight,
 }
 
-impl Default for Federated {
+#[derive(Debug, Clone, Copy, PartialEq, deserr::Deserr)]
+#[deserr(try_from(f64) = TryFrom::try_from -> InvalidMultiSearchWeight)]
+pub struct Weight(f64);
+
+impl Default for Weight {
     fn default() -> Self {
-        Self { weight: DEFAULT_FEDERATED_WEIGHT() }
+        Weight(DEFAULT_FEDERATED_WEIGHT())
+    }
+}
+
+impl std::convert::TryFrom<f64> for Weight {
+    type Error = InvalidMultiSearchWeight;
+
+    fn try_from(f: f64) -> Result<Self, Self::Error> {
+        // the suggested "fix" is: `!(0.0..=1.0).contains(&f)`` which is allegedly less readable
+        #[allow(clippy::manual_range_contains)]
+        if f < 0.0 {
+            Err(InvalidMultiSearchWeight)
+        } else {
+            Ok(Weight(f))
+        }
+    }
+}
+
+impl std::ops::Deref for Weight {
+    type Target = f64;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
     }
 }
 
@@ -218,8 +245,8 @@ fn merge_index_local_results(
     itertools::kmerge_by(
         results_by_query.into_iter().map(SearchResultByQueryIter::new),
         |left: &SearchResultByQueryIterItem, right: &SearchResultByQueryIterItem| {
-            let left_score = WeightedScore::new(&left.score, left.federated.weight);
-            let right_score = WeightedScore::new(&right.score, right.federated.weight);
+            let left_score = WeightedScore::new(&left.score, *left.federated.weight);
+            let right_score = WeightedScore::new(&right.score, *right.federated.weight);
 
             match left_score.compare(&right_score) {
                 // the biggest score goes first
@@ -238,8 +265,8 @@ fn merge_index_global_results(
     itertools::kmerge_by(
         results_by_index.into_iter().map(|result_by_index| result_by_index.hits.into_iter()),
         |left: &SearchHitByIndex, right: &SearchHitByIndex| {
-            let left_score = WeightedScore::new(&left.score, left.federated.weight);
-            let right_score = WeightedScore::new(&right.score, right.federated.weight);
+            let left_score = WeightedScore::new(&left.score, *left.federated.weight);
+            let right_score = WeightedScore::new(&right.score, *right.federated.weight);
 
             match left_score.compare(&right_score) {
                 // the biggest score goes first
@@ -297,8 +324,11 @@ pub fn perform_federated_search(
     let mut queries_by_index: BTreeMap<String, Vec<QueryByIndex>> = Default::default();
     for (query_index, federated_query) in queries.into_iter().enumerate() {
         if let Some(pagination_field) = federated_query.has_pagination() {
-            /// FIXME: proper error
-            panic!("using pagination with a federated query")
+            return Err(MeilisearchHttpError::PaginationInFederatedQuery(
+                query_index,
+                pagination_field,
+            )
+            .into());
         }
 
         let (index_uid, query, federated) = federated_query.into_index_query_federated();
@@ -451,7 +481,7 @@ pub fn perform_federated_search(
                      }| {
                         let mut hit = hit_maker.make_hit(docid, &score)?;
                         let weighted_score =
-                            ScoreDetails::global_score(score.iter()) * federated.weight;
+                            ScoreDetails::global_score(score.iter()) * (*federated.weight);
 
                         let _federation = serde_json::json!(
                             {

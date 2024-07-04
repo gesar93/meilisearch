@@ -25,6 +25,10 @@ pub enum MeilisearchHttpError {
     DocumentNotFound(String),
     #[error("Sending an empty filter is forbidden.")]
     EmptyFilter,
+    #[error("Using `federated` is not allowed in a non-federated search.\n Hint: remove `federated` from query #{0} or add `federation: {{}}` to the request.")]
+    FederatedQueryInNonFederatedRequest(usize),
+    #[error("Inside `.queries[{0}]`: Using pagination options is not allowed in federated queries.\n Hint: remove `{1}` from query #{0} or remove `federation: {{}}` from the request")]
+    PaginationInFederatedQuery(usize, &'static str),
     #[error("Invalid syntax for the filter parameter: `expected {}, found: {1}`.", .0.join(", "))]
     InvalidExpression(&'static [&'static str], Value),
     #[error("A {0} payload is missing.")]
@@ -86,6 +90,12 @@ impl ErrorCode for MeilisearchHttpError {
             MeilisearchHttpError::DocumentFormat(e) => e.error_code(),
             MeilisearchHttpError::Join(_) => Code::Internal,
             MeilisearchHttpError::MissingSearchHybrid => Code::MissingSearchHybrid,
+            MeilisearchHttpError::FederatedQueryInNonFederatedRequest(_) => {
+                Code::InvalidMultiSearchQueryFederated
+            }
+            MeilisearchHttpError::PaginationInFederatedQuery(_, _) => {
+                Code::InvalidMultiSearchQueryPagination
+            }
         }
     }
 }
