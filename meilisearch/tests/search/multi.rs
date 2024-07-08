@@ -1297,6 +1297,1059 @@ async fn federation_filter() {
 }
 
 #[actix_rt::test]
+async fn federation_sort_same_indexes_same_criterion_same_direction() {
+    let server = Server::new().await;
+
+    let index = server.index("nested");
+
+    let documents = NESTED_DOCUMENTS.clone();
+    let (value, _) = index.add_documents(documents, None).await;
+    index.wait_task(value.uid()).await;
+
+    let (value, _) = index
+        .update_settings(json!({
+          "sortableAttributes": ["mother"],
+          "rankingRules": [
+            "sort",
+            "words",
+            "typo",
+            "proximity",
+            "attribute",
+            "exactness"
+          ]
+        }))
+        .await;
+    index.wait_task(value.uid()).await;
+
+    // two identical placeholder search should have all results from first query
+    let (response, code) = server
+        .multi_search(json!({"federation": {}, "queries": [
+          {"indexUid" : "nested", "q": "", "sort": ["mother:asc"], "showRankingScore": true },
+          {"indexUid" : "nested", "q": "", "sort": ["mother:asc"], "showRankingScore": true },
+        ]}))
+        .await;
+    snapshot!(code, @"200 OK");
+    insta::assert_json_snapshot!(response, { ".processingTimeMs" => "[time]" }, @r###"
+    {
+      "hits": [
+        {
+          "id": 852,
+          "father": "jean",
+          "mother": "michelle",
+          "doggos": [
+            {
+              "name": "bobby",
+              "age": 2
+            },
+            {
+              "name": "buddy",
+              "age": 4
+            }
+          ],
+          "cattos": "pésti",
+          "_vectors": {
+            "manual": [
+              1.0,
+              2.0,
+              3.0
+            ]
+          },
+          "_federation": {
+            "indexUid": "nested",
+            "sourceQuery": 0,
+            "weightedRankingScore": 1.0
+          },
+          "_rankingScore": 1.0
+        },
+        {
+          "id": 750,
+          "father": "romain",
+          "mother": "michelle",
+          "cattos": [
+            "enigma"
+          ],
+          "_vectors": {
+            "manual": [
+              10.0,
+              23.0,
+              32.0
+            ]
+          },
+          "_federation": {
+            "indexUid": "nested",
+            "sourceQuery": 0,
+            "weightedRankingScore": 1.0
+          },
+          "_rankingScore": 1.0
+        },
+        {
+          "id": 654,
+          "father": "pierre",
+          "mother": "sabine",
+          "doggos": [
+            {
+              "name": "gros bill",
+              "age": 8
+            }
+          ],
+          "cattos": [
+            "simba",
+            "pestiféré"
+          ],
+          "_vectors": {
+            "manual": [
+              1.0,
+              2.0,
+              54.0
+            ]
+          },
+          "_federation": {
+            "indexUid": "nested",
+            "sourceQuery": 0,
+            "weightedRankingScore": 1.0
+          },
+          "_rankingScore": 1.0
+        },
+        {
+          "id": 951,
+          "father": "jean-baptiste",
+          "mother": "sophie",
+          "doggos": [
+            {
+              "name": "turbo",
+              "age": 5
+            },
+            {
+              "name": "fast",
+              "age": 6
+            }
+          ],
+          "cattos": [
+            "moumoute",
+            "gomez"
+          ],
+          "_vectors": {
+            "manual": [
+              10.0,
+              23.0,
+              32.0
+            ]
+          },
+          "_federation": {
+            "indexUid": "nested",
+            "sourceQuery": 0,
+            "weightedRankingScore": 1.0
+          },
+          "_rankingScore": 1.0
+        }
+      ],
+      "processingTimeMs": "[time]",
+      "limit": 20,
+      "offset": 0,
+      "estimatedTotalHits": 4
+    }
+    "###);
+
+    // mix and match query
+    let (response, code) = server
+        .multi_search(json!({"federation": {}, "queries": [
+          {"indexUid" : "nested", "q": "pésti", "sort": ["mother:asc"], "showRankingScore": true },
+          {"indexUid" : "nested", "q": "jean", "sort": ["mother:asc"], "showRankingScore": true },
+        ]}))
+        .await;
+    snapshot!(code, @"200 OK");
+    insta::assert_json_snapshot!(response, { ".processingTimeMs" => "[time]" }, @r###"
+    {
+      "hits": [
+        {
+          "id": 852,
+          "father": "jean",
+          "mother": "michelle",
+          "doggos": [
+            {
+              "name": "bobby",
+              "age": 2
+            },
+            {
+              "name": "buddy",
+              "age": 4
+            }
+          ],
+          "cattos": "pésti",
+          "_vectors": {
+            "manual": [
+              1.0,
+              2.0,
+              3.0
+            ]
+          },
+          "_federation": {
+            "indexUid": "nested",
+            "sourceQuery": 0,
+            "weightedRankingScore": 1.0
+          },
+          "_rankingScore": 1.0
+        },
+        {
+          "id": 654,
+          "father": "pierre",
+          "mother": "sabine",
+          "doggos": [
+            {
+              "name": "gros bill",
+              "age": 8
+            }
+          ],
+          "cattos": [
+            "simba",
+            "pestiféré"
+          ],
+          "_vectors": {
+            "manual": [
+              1.0,
+              2.0,
+              54.0
+            ]
+          },
+          "_federation": {
+            "indexUid": "nested",
+            "sourceQuery": 0,
+            "weightedRankingScore": 0.7803030303030303
+          },
+          "_rankingScore": 0.7803030303030303
+        },
+        {
+          "id": 951,
+          "father": "jean-baptiste",
+          "mother": "sophie",
+          "doggos": [
+            {
+              "name": "turbo",
+              "age": 5
+            },
+            {
+              "name": "fast",
+              "age": 6
+            }
+          ],
+          "cattos": [
+            "moumoute",
+            "gomez"
+          ],
+          "_vectors": {
+            "manual": [
+              10.0,
+              23.0,
+              32.0
+            ]
+          },
+          "_federation": {
+            "indexUid": "nested",
+            "sourceQuery": 1,
+            "weightedRankingScore": 0.9848484848484848
+          },
+          "_rankingScore": 0.9848484848484848
+        }
+      ],
+      "processingTimeMs": "[time]",
+      "limit": 20,
+      "offset": 0,
+      "estimatedTotalHits": 3
+    }
+    "###);
+}
+
+#[actix_rt::test]
+async fn federation_sort_same_indexes_same_criterion_opposite_direction() {
+    let server = Server::new().await;
+
+    let index = server.index("nested");
+
+    let documents = NESTED_DOCUMENTS.clone();
+    let (value, _) = index.add_documents(documents, None).await;
+    index.wait_task(value.uid()).await;
+
+    let (value, _) = index
+        .update_settings(json!({
+          "sortableAttributes": ["mother"],
+          "rankingRules": [
+            "sort",
+            "words",
+            "typo",
+            "proximity",
+            "attribute",
+            "exactness"
+          ]
+        }))
+        .await;
+    index.wait_task(value.uid()).await;
+
+    // two identical placeholder search should have all results from first query
+    let (response, code) = server
+        .multi_search(json!({"federation": {}, "queries": [
+          {"indexUid" : "nested", "q": "", "sort": ["mother:asc"], "showRankingScore": true },
+          {"indexUid" : "nested", "q": "", "sort": ["mother:desc"], "showRankingScore": true },
+        ]}))
+        .await;
+    snapshot!(code, @"200 OK");
+    insta::assert_json_snapshot!(response, { ".processingTimeMs" => "[time]" }, @r###"
+    {
+      "hits": [
+        {
+          "id": 852,
+          "father": "jean",
+          "mother": "michelle",
+          "doggos": [
+            {
+              "name": "bobby",
+              "age": 2
+            },
+            {
+              "name": "buddy",
+              "age": 4
+            }
+          ],
+          "cattos": "pésti",
+          "_vectors": {
+            "manual": [
+              1.0,
+              2.0,
+              3.0
+            ]
+          },
+          "_federation": {
+            "indexUid": "nested",
+            "sourceQuery": 0,
+            "weightedRankingScore": 1.0
+          },
+          "_rankingScore": 1.0
+        },
+        {
+          "id": 750,
+          "father": "romain",
+          "mother": "michelle",
+          "cattos": [
+            "enigma"
+          ],
+          "_vectors": {
+            "manual": [
+              10.0,
+              23.0,
+              32.0
+            ]
+          },
+          "_federation": {
+            "indexUid": "nested",
+            "sourceQuery": 0,
+            "weightedRankingScore": 1.0
+          },
+          "_rankingScore": 1.0
+        },
+        {
+          "id": 654,
+          "father": "pierre",
+          "mother": "sabine",
+          "doggos": [
+            {
+              "name": "gros bill",
+              "age": 8
+            }
+          ],
+          "cattos": [
+            "simba",
+            "pestiféré"
+          ],
+          "_vectors": {
+            "manual": [
+              1.0,
+              2.0,
+              54.0
+            ]
+          },
+          "_federation": {
+            "indexUid": "nested",
+            "sourceQuery": 0,
+            "weightedRankingScore": 1.0
+          },
+          "_rankingScore": 1.0
+        },
+        {
+          "id": 951,
+          "father": "jean-baptiste",
+          "mother": "sophie",
+          "doggos": [
+            {
+              "name": "turbo",
+              "age": 5
+            },
+            {
+              "name": "fast",
+              "age": 6
+            }
+          ],
+          "cattos": [
+            "moumoute",
+            "gomez"
+          ],
+          "_vectors": {
+            "manual": [
+              10.0,
+              23.0,
+              32.0
+            ]
+          },
+          "_federation": {
+            "indexUid": "nested",
+            "sourceQuery": 0,
+            "weightedRankingScore": 1.0
+          },
+          "_rankingScore": 1.0
+        }
+      ],
+      "processingTimeMs": "[time]",
+      "limit": 20,
+      "offset": 0,
+      "estimatedTotalHits": 4
+    }
+    "###);
+
+    // mix and match query: should be ranked by ranking score
+    let (response, code) = server
+        .multi_search(json!({"federation": {}, "queries": [
+          {"indexUid" : "nested", "q": "pésti", "sort": ["mother:asc"], "showRankingScore": true },
+          {"indexUid" : "nested", "q": "jean", "sort": ["mother:desc"], "showRankingScore": true },
+        ]}))
+        .await;
+    snapshot!(code, @"200 OK");
+    insta::assert_json_snapshot!(response, { ".processingTimeMs" => "[time]" }, @r###"
+    {
+      "hits": [
+        {
+          "id": 852,
+          "father": "jean",
+          "mother": "michelle",
+          "doggos": [
+            {
+              "name": "bobby",
+              "age": 2
+            },
+            {
+              "name": "buddy",
+              "age": 4
+            }
+          ],
+          "cattos": "pésti",
+          "_vectors": {
+            "manual": [
+              1.0,
+              2.0,
+              3.0
+            ]
+          },
+          "_federation": {
+            "indexUid": "nested",
+            "sourceQuery": 0,
+            "weightedRankingScore": 1.0
+          },
+          "_rankingScore": 1.0
+        },
+        {
+          "id": 951,
+          "father": "jean-baptiste",
+          "mother": "sophie",
+          "doggos": [
+            {
+              "name": "turbo",
+              "age": 5
+            },
+            {
+              "name": "fast",
+              "age": 6
+            }
+          ],
+          "cattos": [
+            "moumoute",
+            "gomez"
+          ],
+          "_vectors": {
+            "manual": [
+              10.0,
+              23.0,
+              32.0
+            ]
+          },
+          "_federation": {
+            "indexUid": "nested",
+            "sourceQuery": 1,
+            "weightedRankingScore": 0.9848484848484848
+          },
+          "_rankingScore": 0.9848484848484848
+        },
+        {
+          "id": 654,
+          "father": "pierre",
+          "mother": "sabine",
+          "doggos": [
+            {
+              "name": "gros bill",
+              "age": 8
+            }
+          ],
+          "cattos": [
+            "simba",
+            "pestiféré"
+          ],
+          "_vectors": {
+            "manual": [
+              1.0,
+              2.0,
+              54.0
+            ]
+          },
+          "_federation": {
+            "indexUid": "nested",
+            "sourceQuery": 0,
+            "weightedRankingScore": 0.7803030303030303
+          },
+          "_rankingScore": 0.7803030303030303
+        }
+      ],
+      "processingTimeMs": "[time]",
+      "limit": 20,
+      "offset": 0,
+      "estimatedTotalHits": 3
+    }
+    "###);
+}
+
+#[actix_rt::test]
+async fn federation_sort_same_indexes_different_criterion_same_direction() {
+    let server = Server::new().await;
+
+    let index = server.index("nested");
+
+    let documents = NESTED_DOCUMENTS.clone();
+    let (value, _) = index.add_documents(documents, None).await;
+    index.wait_task(value.uid()).await;
+
+    let (value, _) = index
+        .update_settings(json!({
+          "sortableAttributes": ["mother", "father"],
+          "rankingRules": [
+            "sort",
+            "words",
+            "typo",
+            "proximity",
+            "attribute",
+            "exactness"
+          ]
+        }))
+        .await;
+    index.wait_task(value.uid()).await;
+
+    // return mothers and fathers ordered accross fields.
+    let (response, code) = server
+        .multi_search(json!({"federation": {}, "queries": [
+          {"indexUid" : "nested", "q": "", "sort": ["mother:asc"], "showRankingScore": true },
+          {"indexUid" : "nested", "q": "", "sort": ["father:asc"], "showRankingScore": true },
+        ]}))
+        .await;
+    snapshot!(code, @"200 OK");
+    insta::assert_json_snapshot!(response, { ".processingTimeMs" => "[time]" }, @r###"
+    {
+      "hits": [
+        {
+          "id": 852,
+          "father": "jean",
+          "mother": "michelle",
+          "doggos": [
+            {
+              "name": "bobby",
+              "age": 2
+            },
+            {
+              "name": "buddy",
+              "age": 4
+            }
+          ],
+          "cattos": "pésti",
+          "_vectors": {
+            "manual": [
+              1.0,
+              2.0,
+              3.0
+            ]
+          },
+          "_federation": {
+            "indexUid": "nested",
+            "sourceQuery": 1,
+            "weightedRankingScore": 1.0
+          },
+          "_rankingScore": 1.0
+        },
+        {
+          "id": 951,
+          "father": "jean-baptiste",
+          "mother": "sophie",
+          "doggos": [
+            {
+              "name": "turbo",
+              "age": 5
+            },
+            {
+              "name": "fast",
+              "age": 6
+            }
+          ],
+          "cattos": [
+            "moumoute",
+            "gomez"
+          ],
+          "_vectors": {
+            "manual": [
+              10.0,
+              23.0,
+              32.0
+            ]
+          },
+          "_federation": {
+            "indexUid": "nested",
+            "sourceQuery": 1,
+            "weightedRankingScore": 1.0
+          },
+          "_rankingScore": 1.0
+        },
+        {
+          "id": 750,
+          "father": "romain",
+          "mother": "michelle",
+          "cattos": [
+            "enigma"
+          ],
+          "_vectors": {
+            "manual": [
+              10.0,
+              23.0,
+              32.0
+            ]
+          },
+          "_federation": {
+            "indexUid": "nested",
+            "sourceQuery": 0,
+            "weightedRankingScore": 1.0
+          },
+          "_rankingScore": 1.0
+        },
+        {
+          "id": 654,
+          "father": "pierre",
+          "mother": "sabine",
+          "doggos": [
+            {
+              "name": "gros bill",
+              "age": 8
+            }
+          ],
+          "cattos": [
+            "simba",
+            "pestiféré"
+          ],
+          "_vectors": {
+            "manual": [
+              1.0,
+              2.0,
+              54.0
+            ]
+          },
+          "_federation": {
+            "indexUid": "nested",
+            "sourceQuery": 1,
+            "weightedRankingScore": 1.0
+          },
+          "_rankingScore": 1.0
+        }
+      ],
+      "processingTimeMs": "[time]",
+      "limit": 20,
+      "offset": 0,
+      "estimatedTotalHits": 4
+    }
+    "###);
+
+    // mix and match query: will be sorted across mother and father names
+    let (response, code) = server
+        .multi_search(json!({"federation": {}, "queries": [
+          {"indexUid" : "nested", "q": "pésti", "sort": ["mother:desc"], "showRankingScore": true },
+          {"indexUid" : "nested", "q": "jean-bap", "sort": ["father:desc"], "showRankingScore": true },
+          {"indexUid" : "nested", "q": "jea", "sort": ["father:desc"], "showRankingScore": true },
+        ]}))
+        .await;
+    snapshot!(code, @"200 OK");
+    insta::assert_json_snapshot!(response, { ".processingTimeMs" => "[time]" }, @r###"
+    {
+      "hits": [
+        {
+          "id": 654,
+          "father": "pierre",
+          "mother": "sabine",
+          "doggos": [
+            {
+              "name": "gros bill",
+              "age": 8
+            }
+          ],
+          "cattos": [
+            "simba",
+            "pestiféré"
+          ],
+          "_vectors": {
+            "manual": [
+              1.0,
+              2.0,
+              54.0
+            ]
+          },
+          "_federation": {
+            "indexUid": "nested",
+            "sourceQuery": 0,
+            "weightedRankingScore": 0.7803030303030303
+          },
+          "_rankingScore": 0.7803030303030303
+        },
+        {
+          "id": 852,
+          "father": "jean",
+          "mother": "michelle",
+          "doggos": [
+            {
+              "name": "bobby",
+              "age": 2
+            },
+            {
+              "name": "buddy",
+              "age": 4
+            }
+          ],
+          "cattos": "pésti",
+          "_vectors": {
+            "manual": [
+              1.0,
+              2.0,
+              3.0
+            ]
+          },
+          "_federation": {
+            "indexUid": "nested",
+            "sourceQuery": 0,
+            "weightedRankingScore": 1.0
+          },
+          "_rankingScore": 1.0
+        },
+        {
+          "id": 951,
+          "father": "jean-baptiste",
+          "mother": "sophie",
+          "doggos": [
+            {
+              "name": "turbo",
+              "age": 5
+            },
+            {
+              "name": "fast",
+              "age": 6
+            }
+          ],
+          "cattos": [
+            "moumoute",
+            "gomez"
+          ],
+          "_vectors": {
+            "manual": [
+              10.0,
+              23.0,
+              32.0
+            ]
+          },
+          "_federation": {
+            "indexUid": "nested",
+            "sourceQuery": 1,
+            "weightedRankingScore": 0.9991181657848324
+          },
+          "_rankingScore": 0.9991181657848324
+        }
+      ],
+      "processingTimeMs": "[time]",
+      "limit": 20,
+      "offset": 0,
+      "estimatedTotalHits": 3
+    }
+    "###);
+}
+
+#[actix_rt::test]
+async fn federation_sort_same_indexes_different_criterion_opposite_direction() {
+    let server = Server::new().await;
+
+    let index = server.index("nested");
+
+    let documents = NESTED_DOCUMENTS.clone();
+    let (value, _) = index.add_documents(documents, None).await;
+    index.wait_task(value.uid()).await;
+
+    let (value, _) = index
+        .update_settings(json!({
+          "sortableAttributes": ["mother", "father"],
+          "rankingRules": [
+            "sort",
+            "words",
+            "typo",
+            "proximity",
+            "attribute",
+            "exactness"
+          ]
+        }))
+        .await;
+    index.wait_task(value.uid()).await;
+
+    // two identical placeholder search should have all results from first query
+    let (response, code) = server
+        .multi_search(json!({"federation": {}, "queries": [
+          {"indexUid" : "nested", "q": "", "sort": ["mother:asc"], "showRankingScore": true },
+          {"indexUid" : "nested", "q": "", "sort": ["father:desc"], "showRankingScore": true },
+        ]}))
+        .await;
+    snapshot!(code, @"200 OK");
+    insta::assert_json_snapshot!(response, { ".processingTimeMs" => "[time]" }, @r###"
+    {
+      "hits": [
+        {
+          "id": 852,
+          "father": "jean",
+          "mother": "michelle",
+          "doggos": [
+            {
+              "name": "bobby",
+              "age": 2
+            },
+            {
+              "name": "buddy",
+              "age": 4
+            }
+          ],
+          "cattos": "pésti",
+          "_vectors": {
+            "manual": [
+              1.0,
+              2.0,
+              3.0
+            ]
+          },
+          "_federation": {
+            "indexUid": "nested",
+            "sourceQuery": 0,
+            "weightedRankingScore": 1.0
+          },
+          "_rankingScore": 1.0
+        },
+        {
+          "id": 750,
+          "father": "romain",
+          "mother": "michelle",
+          "cattos": [
+            "enigma"
+          ],
+          "_vectors": {
+            "manual": [
+              10.0,
+              23.0,
+              32.0
+            ]
+          },
+          "_federation": {
+            "indexUid": "nested",
+            "sourceQuery": 0,
+            "weightedRankingScore": 1.0
+          },
+          "_rankingScore": 1.0
+        },
+        {
+          "id": 654,
+          "father": "pierre",
+          "mother": "sabine",
+          "doggos": [
+            {
+              "name": "gros bill",
+              "age": 8
+            }
+          ],
+          "cattos": [
+            "simba",
+            "pestiféré"
+          ],
+          "_vectors": {
+            "manual": [
+              1.0,
+              2.0,
+              54.0
+            ]
+          },
+          "_federation": {
+            "indexUid": "nested",
+            "sourceQuery": 0,
+            "weightedRankingScore": 1.0
+          },
+          "_rankingScore": 1.0
+        },
+        {
+          "id": 951,
+          "father": "jean-baptiste",
+          "mother": "sophie",
+          "doggos": [
+            {
+              "name": "turbo",
+              "age": 5
+            },
+            {
+              "name": "fast",
+              "age": 6
+            }
+          ],
+          "cattos": [
+            "moumoute",
+            "gomez"
+          ],
+          "_vectors": {
+            "manual": [
+              10.0,
+              23.0,
+              32.0
+            ]
+          },
+          "_federation": {
+            "indexUid": "nested",
+            "sourceQuery": 0,
+            "weightedRankingScore": 1.0
+          },
+          "_rankingScore": 1.0
+        }
+      ],
+      "processingTimeMs": "[time]",
+      "limit": 20,
+      "offset": 0,
+      "estimatedTotalHits": 4
+    }
+    "###);
+
+    // mix and match query: should be ranked by ranking score
+    let (response, code) = server
+        .multi_search(json!({"federation": {}, "queries": [
+          {"indexUid" : "nested", "q": "pésti", "sort": ["mother:asc"], "showRankingScore": true },
+          {"indexUid" : "nested", "q": "jean", "sort": ["father:desc"], "showRankingScore": true },
+        ]}))
+        .await;
+    snapshot!(code, @"200 OK");
+    insta::assert_json_snapshot!(response, { ".processingTimeMs" => "[time]" }, @r###"
+    {
+      "hits": [
+        {
+          "id": 852,
+          "father": "jean",
+          "mother": "michelle",
+          "doggos": [
+            {
+              "name": "bobby",
+              "age": 2
+            },
+            {
+              "name": "buddy",
+              "age": 4
+            }
+          ],
+          "cattos": "pésti",
+          "_vectors": {
+            "manual": [
+              1.0,
+              2.0,
+              3.0
+            ]
+          },
+          "_federation": {
+            "indexUid": "nested",
+            "sourceQuery": 0,
+            "weightedRankingScore": 1.0
+          },
+          "_rankingScore": 1.0
+        },
+        {
+          "id": 951,
+          "father": "jean-baptiste",
+          "mother": "sophie",
+          "doggos": [
+            {
+              "name": "turbo",
+              "age": 5
+            },
+            {
+              "name": "fast",
+              "age": 6
+            }
+          ],
+          "cattos": [
+            "moumoute",
+            "gomez"
+          ],
+          "_vectors": {
+            "manual": [
+              10.0,
+              23.0,
+              32.0
+            ]
+          },
+          "_federation": {
+            "indexUid": "nested",
+            "sourceQuery": 1,
+            "weightedRankingScore": 0.9848484848484848
+          },
+          "_rankingScore": 0.9848484848484848
+        },
+        {
+          "id": 654,
+          "father": "pierre",
+          "mother": "sabine",
+          "doggos": [
+            {
+              "name": "gros bill",
+              "age": 8
+            }
+          ],
+          "cattos": [
+            "simba",
+            "pestiféré"
+          ],
+          "_vectors": {
+            "manual": [
+              1.0,
+              2.0,
+              54.0
+            ]
+          },
+          "_federation": {
+            "indexUid": "nested",
+            "sourceQuery": 0,
+            "weightedRankingScore": 0.7803030303030303
+          },
+          "_rankingScore": 0.7803030303030303
+        }
+      ],
+      "processingTimeMs": "[time]",
+      "limit": 20,
+      "offset": 0,
+      "estimatedTotalHits": 3
+    }
+    "###);
+}
+
+#[actix_rt::test]
 async fn federation_invalid_weight() {
     let server = Server::new().await;
 
