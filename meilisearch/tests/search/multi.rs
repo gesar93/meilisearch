@@ -3,7 +3,7 @@ use meili_snap::{json_string, snapshot};
 use super::{DOCUMENTS, FRUITS_DOCUMENTS, NESTED_DOCUMENTS};
 use crate::common::Server;
 use crate::json;
-use crate::search::SCORE_DOCUMENTS;
+use crate::search::{SCORE_DOCUMENTS, VECTOR_DOCUMENTS};
 
 #[actix_rt::test]
 async fn search_empty_list() {
@@ -4108,6 +4108,351 @@ async fn federation_limit_offset() {
 }
 
 #[actix_rt::test]
+async fn federation_formatting() {
+    let server = Server::new().await;
+    let index = server.index("test");
+
+    let documents = DOCUMENTS.clone();
+    index.add_documents(documents, None).await;
+    index.wait_task(0).await;
+
+    let index = server.index("nested");
+    let documents = NESTED_DOCUMENTS.clone();
+    index.add_documents(documents, None).await;
+    index.wait_task(1).await;
+
+    let index = server.index("score");
+    let documents = SCORE_DOCUMENTS.clone();
+    index.add_documents(documents, None).await;
+    index.wait_task(2).await;
+    {
+        let (response, code) = server
+            .multi_search(json!({"federation": {}, "queries": [
+            {"indexUid" : "test", "q": "glass", "attributesToRetrieve": ["title"], "attributesToHighlight": ["title"]},
+            {"indexUid" : "test", "q": "captain", "attributesToRetrieve": ["title"], "attributesToHighlight": ["title"]},
+            {"indexUid": "nested", "q": "pésti", "attributesToRetrieve": ["id"]},
+            {"indexUid" : "test", "q": "Escape", "attributesToRetrieve": ["title"], "attributesToHighlight": ["title"]},
+            {"indexUid": "nested", "q": "jean", "attributesToRetrieve": ["id"]},
+            {"indexUid": "score", "q": "jean", "attributesToRetrieve": ["title"], "attributesToHighlight": ["title"]},
+            {"indexUid": "test", "q": "the bat", "attributesToRetrieve": ["title"], "attributesToHighlight": ["title"]},
+            {"indexUid": "score", "q": "the bat", "attributesToRetrieve": ["title"], "attributesToHighlight": ["title"]},
+            {"indexUid": "score", "q": "badman returns", "attributesToRetrieve": ["title"], "attributesToHighlight": ["title"]},
+            {"indexUid" : "score", "q": "batman", "attributesToRetrieve": ["title"], "attributesToHighlight": ["title"]},
+            {"indexUid": "score", "q": "batman returns", "attributesToRetrieve": ["title"], "attributesToHighlight": ["title"]},
+            ]}))
+            .await;
+        snapshot!(code, @"200 OK");
+        insta::assert_json_snapshot!(response, { ".processingTimeMs" => "[time]", ".**._rankingScore" => "[score]" }, @r###"
+        {
+          "hits": [
+            {
+              "title": "Gläss",
+              "_federation": {
+                "indexUid": "test",
+                "sourceQuery": 0,
+                "weightedRankingScore": 1.0
+              },
+              "_formatted": {
+                "title": "<em>Gläss</em>"
+              }
+            },
+            {
+              "id": 852,
+              "_federation": {
+                "indexUid": "nested",
+                "sourceQuery": 2,
+                "weightedRankingScore": 1.0
+              }
+            },
+            {
+              "title": "Batman",
+              "_federation": {
+                "indexUid": "score",
+                "sourceQuery": 9,
+                "weightedRankingScore": 1.0
+              },
+              "_formatted": {
+                "title": "<em>Batman</em>"
+              }
+            },
+            {
+              "title": "Batman Returns",
+              "_federation": {
+                "indexUid": "score",
+                "sourceQuery": 10,
+                "weightedRankingScore": 1.0
+              },
+              "_formatted": {
+                "title": "<em>Batman</em> <em>Returns</em>"
+              }
+            },
+            {
+              "title": "Captain Marvel",
+              "_federation": {
+                "indexUid": "test",
+                "sourceQuery": 1,
+                "weightedRankingScore": 0.9848484848484848
+              },
+              "_formatted": {
+                "title": "<em>Captain</em> Marvel"
+              }
+            },
+            {
+              "title": "Escape Room",
+              "_federation": {
+                "indexUid": "test",
+                "sourceQuery": 3,
+                "weightedRankingScore": 0.9848484848484848
+              },
+              "_formatted": {
+                "title": "<em>Escape</em> Room"
+              }
+            },
+            {
+              "id": 951,
+              "_federation": {
+                "indexUid": "nested",
+                "sourceQuery": 4,
+                "weightedRankingScore": 0.9848484848484848
+              }
+            },
+            {
+              "title": "Batman the dark knight returns: Part 1",
+              "_federation": {
+                "indexUid": "score",
+                "sourceQuery": 9,
+                "weightedRankingScore": 0.9848484848484848
+              },
+              "_formatted": {
+                "title": "<em>Batman</em> the dark knight returns: Part 1"
+              }
+            },
+            {
+              "title": "Batman the dark knight returns: Part 2",
+              "_federation": {
+                "indexUid": "score",
+                "sourceQuery": 9,
+                "weightedRankingScore": 0.9848484848484848
+              },
+              "_formatted": {
+                "title": "<em>Batman</em> the dark knight returns: Part 2"
+              }
+            },
+            {
+              "id": 654,
+              "_federation": {
+                "indexUid": "nested",
+                "sourceQuery": 2,
+                "weightedRankingScore": 0.7803030303030303
+              }
+            },
+            {
+              "title": "Badman",
+              "_federation": {
+                "indexUid": "score",
+                "sourceQuery": 8,
+                "weightedRankingScore": 0.5
+              },
+              "_formatted": {
+                "title": "<em>Badman</em>"
+              }
+            },
+            {
+              "title": "How to Train Your Dragon: The Hidden World",
+              "_federation": {
+                "indexUid": "test",
+                "sourceQuery": 6,
+                "weightedRankingScore": 0.4166666666666667
+              },
+              "_formatted": {
+                "title": "How to Train Your Dragon: <em>The</em> Hidden World"
+              }
+            }
+          ],
+          "processingTimeMs": "[time]",
+          "limit": 20,
+          "offset": 0,
+          "estimatedTotalHits": 12
+        }
+        "###);
+    }
+
+    {
+        let (response, code) = server
+            .multi_search(json!({"federation": {"limit": 1}, "queries": [
+            {"indexUid" : "test", "q": "glass", "attributesToRetrieve": ["title"]},
+            {"indexUid" : "test", "q": "captain", "attributesToRetrieve": ["title"]},
+            {"indexUid": "nested", "q": "pésti", "attributesToRetrieve": ["id"]},
+            {"indexUid" : "test", "q": "Escape", "attributesToRetrieve": ["title"]},
+            {"indexUid": "nested", "q": "jean", "attributesToRetrieve": ["id"]},
+            {"indexUid": "score", "q": "jean", "attributesToRetrieve": ["title"]},
+            {"indexUid": "test", "q": "the bat", "attributesToRetrieve": ["title"]},
+            {"indexUid": "score", "q": "the bat", "attributesToRetrieve": ["title"]},
+            {"indexUid": "score", "q": "badman returns", "attributesToRetrieve": ["title"]},
+            {"indexUid" : "score", "q": "batman", "attributesToRetrieve": ["title"]},
+            {"indexUid": "score", "q": "batman returns", "attributesToRetrieve": ["title"]},
+            ]}))
+            .await;
+        snapshot!(code, @"200 OK");
+        insta::assert_json_snapshot!(response, { ".processingTimeMs" => "[time]", ".**._rankingScore" => "[score]" }, @r###"
+        {
+          "hits": [
+            {
+              "title": "Gläss",
+              "_federation": {
+                "indexUid": "test",
+                "sourceQuery": 0,
+                "weightedRankingScore": 1.0
+              }
+            }
+          ],
+          "processingTimeMs": "[time]",
+          "limit": 1,
+          "offset": 0,
+          "estimatedTotalHits": 12
+        }
+        "###);
+    }
+
+    {
+        let (response, code) = server
+            .multi_search(json!({"federation": {"offset": 2}, "queries": [
+            {"indexUid" : "test", "q": "glass", "attributesToRetrieve": ["title"]},
+            {"indexUid" : "test", "q": "captain", "attributesToRetrieve": ["title"]},
+            {"indexUid": "nested", "q": "pésti", "attributesToRetrieve": ["id"]},
+            {"indexUid" : "test", "q": "Escape", "attributesToRetrieve": ["title"]},
+            {"indexUid": "nested", "q": "jean", "attributesToRetrieve": ["id"]},
+            {"indexUid": "score", "q": "jean", "attributesToRetrieve": ["title"]},
+            {"indexUid": "test", "q": "the bat", "attributesToRetrieve": ["title"]},
+            {"indexUid": "score", "q": "the bat", "attributesToRetrieve": ["title"]},
+            {"indexUid": "score", "q": "badman returns", "attributesToRetrieve": ["title"]},
+            {"indexUid" : "score", "q": "batman", "attributesToRetrieve": ["title"]},
+            {"indexUid": "score", "q": "batman returns", "attributesToRetrieve": ["title"]},
+            ]}))
+            .await;
+        snapshot!(code, @"200 OK");
+        insta::assert_json_snapshot!(response, { ".processingTimeMs" => "[time]", ".**._rankingScore" => "[score]" }, @r###"
+        {
+          "hits": [
+            {
+              "title": "Batman",
+              "_federation": {
+                "indexUid": "score",
+                "sourceQuery": 9,
+                "weightedRankingScore": 1.0
+              }
+            },
+            {
+              "title": "Batman Returns",
+              "_federation": {
+                "indexUid": "score",
+                "sourceQuery": 10,
+                "weightedRankingScore": 1.0
+              }
+            },
+            {
+              "title": "Captain Marvel",
+              "_federation": {
+                "indexUid": "test",
+                "sourceQuery": 1,
+                "weightedRankingScore": 0.9848484848484848
+              }
+            },
+            {
+              "title": "Escape Room",
+              "_federation": {
+                "indexUid": "test",
+                "sourceQuery": 3,
+                "weightedRankingScore": 0.9848484848484848
+              }
+            },
+            {
+              "id": 951,
+              "_federation": {
+                "indexUid": "nested",
+                "sourceQuery": 4,
+                "weightedRankingScore": 0.9848484848484848
+              }
+            },
+            {
+              "title": "Batman the dark knight returns: Part 1",
+              "_federation": {
+                "indexUid": "score",
+                "sourceQuery": 9,
+                "weightedRankingScore": 0.9848484848484848
+              }
+            },
+            {
+              "title": "Batman the dark knight returns: Part 2",
+              "_federation": {
+                "indexUid": "score",
+                "sourceQuery": 9,
+                "weightedRankingScore": 0.9848484848484848
+              }
+            },
+            {
+              "id": 654,
+              "_federation": {
+                "indexUid": "nested",
+                "sourceQuery": 2,
+                "weightedRankingScore": 0.7803030303030303
+              }
+            },
+            {
+              "title": "Badman",
+              "_federation": {
+                "indexUid": "score",
+                "sourceQuery": 8,
+                "weightedRankingScore": 0.5
+              }
+            },
+            {
+              "title": "How to Train Your Dragon: The Hidden World",
+              "_federation": {
+                "indexUid": "test",
+                "sourceQuery": 6,
+                "weightedRankingScore": 0.4166666666666667
+              }
+            }
+          ],
+          "processingTimeMs": "[time]",
+          "limit": 20,
+          "offset": 2,
+          "estimatedTotalHits": 12
+        }
+        "###);
+    }
+
+    {
+        let (response, code) = server
+            .multi_search(json!({"federation": {"offset": 12}, "queries": [
+            {"indexUid" : "test", "q": "glass", "attributesToRetrieve": ["title"]},
+            {"indexUid" : "test", "q": "captain", "attributesToRetrieve": ["title"]},
+            {"indexUid": "nested", "q": "pésti", "attributesToRetrieve": ["id"]},
+            {"indexUid" : "test", "q": "Escape", "attributesToRetrieve": ["title"]},
+            {"indexUid": "nested", "q": "jean", "attributesToRetrieve": ["id"]},
+            {"indexUid": "score", "q": "jean", "attributesToRetrieve": ["title"]},
+            {"indexUid": "test", "q": "the bat", "attributesToRetrieve": ["title"]},
+            {"indexUid": "score", "q": "the bat", "attributesToRetrieve": ["title"]},
+            {"indexUid": "score", "q": "badman returns", "attributesToRetrieve": ["title"]},
+            {"indexUid" : "score", "q": "batman", "attributesToRetrieve": ["title"]},
+            {"indexUid": "score", "q": "batman returns", "attributesToRetrieve": ["title"]},
+            ]}))
+            .await;
+        snapshot!(code, @"200 OK");
+        insta::assert_json_snapshot!(response, { ".processingTimeMs" => "[time]", ".**._rankingScore" => "[score]" }, @r###"
+        {
+          "hits": [],
+          "processingTimeMs": "[time]",
+          "limit": 20,
+          "offset": 12,
+          "estimatedTotalHits": 12
+        }
+        "###);
+    }
+}
+
+#[actix_rt::test]
 async fn federation_invalid_weight() {
     let server = Server::new().await;
 
@@ -4309,6 +4654,555 @@ async fn federation_non_federated_contains_federation_option() {
       "code": "invalid_multi_search_query_federated",
       "type": "invalid_request",
       "link": "https://docs.meilisearch.com/errors#invalid_multi_search_query_federated"
+    }
+    "###);
+}
+
+#[actix_rt::test]
+async fn federation_vector_single_index() {
+    let server = Server::new().await;
+    let (_, code) = server
+        .set_features(json!({
+          "vectorStore": true
+        }))
+        .await;
+
+    snapshot!(code, @"200 OK");
+
+    let index = server.index("vectors");
+
+    let (value, _) = index
+        .update_settings(json!({"embedders": {
+          "animal": {
+            "source": "userProvided",
+            "dimensions": 3
+          },
+          "sentiment": {
+            "source": "userProvided",
+            "dimensions": 2
+          }
+        }}))
+        .await;
+    index.wait_task(value.uid()).await;
+
+    let documents = VECTOR_DOCUMENTS.clone();
+    let (value, code) = index.add_documents(documents, None).await;
+    snapshot!(code, @"202 Accepted");
+    index.wait_task(value.uid()).await;
+
+    // same embedder
+    let (response, code) = server
+        .multi_search(json!({"federation": {}, "queries": [
+        {"indexUid" : "vectors", "vector": [1.0, 0.0, 0.5], "hybrid": {"semanticRatio": 1.0, "embedder": "animal"}},
+        {"indexUid": "vectors", "vector": [0.5, 0.5, 0.5], "hybrid": {"semanticRatio": 1.0, "embedder": "animal"}},
+        ]}))
+        .await;
+    snapshot!(code, @"200 OK");
+    insta::assert_json_snapshot!(response, { ".processingTimeMs" => "[time]", ".**._rankingScore" => "[score]" }, @r###"
+    {
+      "hits": [
+        {
+          "id": "B",
+          "description": "the kitten scratched the beagle",
+          "_federation": {
+            "indexUid": "vectors",
+            "sourceQuery": 1,
+            "weightedRankingScore": 0.9870882034301758
+          }
+        },
+        {
+          "id": "D",
+          "description": "the little boy pets the puppy",
+          "_federation": {
+            "indexUid": "vectors",
+            "sourceQuery": 0,
+            "weightedRankingScore": 0.9728479385375975
+          }
+        },
+        {
+          "id": "C",
+          "description": "the dog had to stay alone today",
+          "_federation": {
+            "indexUid": "vectors",
+            "sourceQuery": 0,
+            "weightedRankingScore": 0.9701486229896544
+          }
+        },
+        {
+          "id": "A",
+          "description": "the dog barks at the cat",
+          "_federation": {
+            "indexUid": "vectors",
+            "sourceQuery": 1,
+            "weightedRankingScore": 0.9191691875457764
+          }
+        }
+      ],
+      "processingTimeMs": "[time]",
+      "limit": 20,
+      "offset": 0,
+      "estimatedTotalHits": 4,
+      "semanticHitCount": 4
+    }
+    "###);
+
+    // distinct embedder
+    let (response, code) = server
+        .multi_search(json!({"federation": {}, "queries": [
+        {"indexUid" : "vectors", "vector": [1.0, 0.0, 0.5], "hybrid": {"semanticRatio": 1.0, "embedder": "animal"}},
+        // joyful and energetic first
+        {"indexUid": "vectors", "vector": [0.8, 0.6], "hybrid": {"semanticRatio": 1.0, "embedder": "sentiment"}},
+        ]}))
+        .await;
+    snapshot!(code, @"200 OK");
+    insta::assert_json_snapshot!(response, { ".processingTimeMs" => "[time]", ".**._rankingScore" => "[score]" }, @r###"
+    {
+      "hits": [
+        {
+          "id": "D",
+          "description": "the little boy pets the puppy",
+          "_federation": {
+            "indexUid": "vectors",
+            "sourceQuery": 1,
+            "weightedRankingScore": 0.979868710041046
+          }
+        },
+        {
+          "id": "C",
+          "description": "the dog had to stay alone today",
+          "_federation": {
+            "indexUid": "vectors",
+            "sourceQuery": 0,
+            "weightedRankingScore": 0.9701486229896544
+          }
+        },
+        {
+          "id": "B",
+          "description": "the kitten scratched the beagle",
+          "_federation": {
+            "indexUid": "vectors",
+            "sourceQuery": 0,
+            "weightedRankingScore": 0.8601469993591309
+          }
+        },
+        {
+          "id": "A",
+          "description": "the dog barks at the cat",
+          "_federation": {
+            "indexUid": "vectors",
+            "sourceQuery": 0,
+            "weightedRankingScore": 0.8432406187057495
+          }
+        }
+      ],
+      "processingTimeMs": "[time]",
+      "limit": 20,
+      "offset": 0,
+      "estimatedTotalHits": 4,
+      "semanticHitCount": 4
+    }
+    "###);
+
+    // hybrid search, distinct embedder
+    let (response, code) = server
+        .multi_search(json!({"federation": {}, "queries": [
+          {"indexUid" : "vectors", "vector": [1.0, 0.0, 0.5], "hybrid": {"semanticRatio": 1.0, "embedder": "animal"}, "showRankingScore": true},
+          // joyful and energetic first
+          {"indexUid": "vectors", "vector": [0.8, 0.6], "q": "beagle", "hybrid": {"semanticRatio": 1.0, "embedder": "sentiment"},"showRankingScore": true},
+        ]}))
+        .await;
+    snapshot!(code, @"200 OK");
+    insta::assert_json_snapshot!(response, { ".processingTimeMs" => "[time]", ".**._rankingScore" => "[score]" }, @r###"
+    {
+      "hits": [
+        {
+          "id": "D",
+          "description": "the little boy pets the puppy",
+          "_federation": {
+            "indexUid": "vectors",
+            "sourceQuery": 1,
+            "weightedRankingScore": 0.979868710041046
+          },
+          "_rankingScore": "[score]"
+        },
+        {
+          "id": "C",
+          "description": "the dog had to stay alone today",
+          "_federation": {
+            "indexUid": "vectors",
+            "sourceQuery": 0,
+            "weightedRankingScore": 0.9701486229896544
+          },
+          "_rankingScore": "[score]"
+        },
+        {
+          "id": "B",
+          "description": "the kitten scratched the beagle",
+          "_federation": {
+            "indexUid": "vectors",
+            "sourceQuery": 0,
+            "weightedRankingScore": 0.8601469993591309
+          },
+          "_rankingScore": "[score]"
+        },
+        {
+          "id": "A",
+          "description": "the dog barks at the cat",
+          "_federation": {
+            "indexUid": "vectors",
+            "sourceQuery": 0,
+            "weightedRankingScore": 0.8432406187057495
+          },
+          "_rankingScore": "[score]"
+        }
+      ],
+      "processingTimeMs": "[time]",
+      "limit": 20,
+      "offset": 0,
+      "estimatedTotalHits": 4,
+      "semanticHitCount": 4
+    }
+    "###);
+}
+
+#[actix_rt::test]
+async fn federation_vector_two_indexes() {
+    let server = Server::new().await;
+    let (_, code) = server
+        .set_features(json!({
+          "vectorStore": true
+        }))
+        .await;
+
+    snapshot!(code, @"200 OK");
+
+    let index = server.index("vectors-animal");
+
+    let (value, _) = index
+        .update_settings(json!({"embedders": {
+          "animal": {
+            "source": "userProvided",
+            "dimensions": 3
+          },
+        }}))
+        .await;
+    index.wait_task(value.uid()).await;
+
+    let documents = VECTOR_DOCUMENTS.clone();
+    let (value, code) = index.add_documents(documents, None).await;
+    snapshot!(code, @"202 Accepted");
+    index.wait_task(value.uid()).await;
+
+    let index = server.index("vectors-sentiment");
+
+    let (value, _) = index
+        .update_settings(json!({"embedders": {
+          "sentiment": {
+            "source": "userProvided",
+            "dimensions": 2
+          }
+        }}))
+        .await;
+    index.wait_task(value.uid()).await;
+
+    let documents = VECTOR_DOCUMENTS.clone();
+    let (value, code) = index.add_documents(documents, None).await;
+    snapshot!(code, @"202 Accepted");
+    index.wait_task(value.uid()).await;
+
+    let (response, code) = server
+        .multi_search(json!({"federation": {}, "queries": [
+        {"indexUid" : "vectors-animal", "vector": [1.0, 0.0, 0.5], "hybrid": {"semanticRatio": 1.0, "embedder": "animal"}},
+        // joyful and energetic first
+        {"indexUid": "vectors-sentiment", "vector": [0.8, 0.6], "hybrid": {"semanticRatio": 1.0, "embedder": "sentiment"}},
+        ]}))
+        .await;
+    snapshot!(code, @"200 OK");
+    insta::assert_json_snapshot!(response, { ".processingTimeMs" => "[time]", ".**._rankingScore" => "[score]" }, @r###"
+    {
+      "hits": [
+        {
+          "id": "D",
+          "description": "the little boy pets the puppy",
+          "_vectors": {
+            "animal": [
+              0.8,
+              0.09,
+              0.8
+            ]
+          },
+          "_federation": {
+            "indexUid": "vectors-sentiment",
+            "sourceQuery": 1,
+            "weightedRankingScore": 0.979868710041046
+          }
+        },
+        {
+          "id": "D",
+          "description": "the little boy pets the puppy",
+          "_vectors": {
+            "sentiment": [
+              0.8,
+              0.3
+            ]
+          },
+          "_federation": {
+            "indexUid": "vectors-animal",
+            "sourceQuery": 0,
+            "weightedRankingScore": 0.9728479385375975
+          }
+        },
+        {
+          "id": "C",
+          "description": "the dog had to stay alone today",
+          "_vectors": {
+            "sentiment": [
+              -1.0,
+              0.1
+            ]
+          },
+          "_federation": {
+            "indexUid": "vectors-animal",
+            "sourceQuery": 0,
+            "weightedRankingScore": 0.9701486229896544
+          }
+        },
+        {
+          "id": "B",
+          "description": "the kitten scratched the beagle",
+          "_vectors": {
+            "sentiment": [
+              -0.2,
+              0.65
+            ]
+          },
+          "_federation": {
+            "indexUid": "vectors-animal",
+            "sourceQuery": 0,
+            "weightedRankingScore": 0.8601469993591309
+          }
+        },
+        {
+          "id": "A",
+          "description": "the dog barks at the cat",
+          "_vectors": {
+            "sentiment": [
+              -0.1,
+              0.55
+            ]
+          },
+          "_federation": {
+            "indexUid": "vectors-animal",
+            "sourceQuery": 0,
+            "weightedRankingScore": 0.8432406187057495
+          }
+        },
+        {
+          "id": "A",
+          "description": "the dog barks at the cat",
+          "_vectors": {
+            "animal": [
+              0.9,
+              0.8,
+              0.05
+            ]
+          },
+          "_federation": {
+            "indexUid": "vectors-sentiment",
+            "sourceQuery": 1,
+            "weightedRankingScore": 0.7236068248748779
+          }
+        },
+        {
+          "id": "B",
+          "description": "the kitten scratched the beagle",
+          "_vectors": {
+            "animal": [
+              0.8,
+              0.9,
+              0.5
+            ]
+          },
+          "_federation": {
+            "indexUid": "vectors-sentiment",
+            "sourceQuery": 1,
+            "weightedRankingScore": 0.6690993905067444
+          }
+        },
+        {
+          "id": "C",
+          "description": "the dog had to stay alone today",
+          "_vectors": {
+            "animal": [
+              0.85,
+              0.02,
+              0.1
+            ]
+          },
+          "_federation": {
+            "indexUid": "vectors-sentiment",
+            "sourceQuery": 1,
+            "weightedRankingScore": 0.13183623552322388
+          }
+        }
+      ],
+      "processingTimeMs": "[time]",
+      "limit": 20,
+      "offset": 0,
+      "estimatedTotalHits": 8,
+      "semanticHitCount": 8
+    }
+    "###);
+
+    // hybrid search, distinct embedder
+    let (response, code) = server
+        .multi_search(json!({"federation": {}, "queries": [
+          {"indexUid" : "vectors-animal", "vector": [1.0, 0.0, 0.5], "hybrid": {"semanticRatio": 1.0, "embedder": "animal"}, "showRankingScore": true},
+          {"indexUid": "vectors-sentiment", "vector": [-1, 0.6], "q": "beagle", "hybrid": {"semanticRatio": 1.0, "embedder": "sentiment"}, "showRankingScore": true},
+        ]}))
+        .await;
+    snapshot!(code, @"200 OK");
+    insta::assert_json_snapshot!(response, { ".processingTimeMs" => "[time]", ".**._rankingScore" => "[score]" }, @r###"
+    {
+      "hits": [
+        {
+          "id": "D",
+          "description": "the little boy pets the puppy",
+          "_vectors": {
+            "sentiment": [
+              0.8,
+              0.3
+            ]
+          },
+          "_federation": {
+            "indexUid": "vectors-animal",
+            "sourceQuery": 0,
+            "weightedRankingScore": 0.9728479385375975
+          },
+          "_rankingScore": "[score]"
+        },
+        {
+          "id": "C",
+          "description": "the dog had to stay alone today",
+          "_vectors": {
+            "sentiment": [
+              -1.0,
+              0.1
+            ]
+          },
+          "_federation": {
+            "indexUid": "vectors-animal",
+            "sourceQuery": 0,
+            "weightedRankingScore": 0.9701486229896544
+          },
+          "_rankingScore": "[score]"
+        },
+        {
+          "id": "C",
+          "description": "the dog had to stay alone today",
+          "_vectors": {
+            "animal": [
+              0.85,
+              0.02,
+              0.1
+            ]
+          },
+          "_federation": {
+            "indexUid": "vectors-sentiment",
+            "sourceQuery": 1,
+            "weightedRankingScore": 0.9522157907485962
+          },
+          "_rankingScore": "[score]"
+        },
+        {
+          "id": "B",
+          "description": "the kitten scratched the beagle",
+          "_vectors": {
+            "animal": [
+              0.8,
+              0.9,
+              0.5
+            ]
+          },
+          "_federation": {
+            "indexUid": "vectors-sentiment",
+            "sourceQuery": 1,
+            "weightedRankingScore": 0.8719604015350342
+          },
+          "_rankingScore": "[score]"
+        },
+        {
+          "id": "B",
+          "description": "the kitten scratched the beagle",
+          "_vectors": {
+            "sentiment": [
+              -0.2,
+              0.65
+            ]
+          },
+          "_federation": {
+            "indexUid": "vectors-animal",
+            "sourceQuery": 0,
+            "weightedRankingScore": 0.8601469993591309
+          },
+          "_rankingScore": "[score]"
+        },
+        {
+          "id": "A",
+          "description": "the dog barks at the cat",
+          "_vectors": {
+            "sentiment": [
+              -0.1,
+              0.55
+            ]
+          },
+          "_federation": {
+            "indexUid": "vectors-animal",
+            "sourceQuery": 0,
+            "weightedRankingScore": 0.8432406187057495
+          },
+          "_rankingScore": "[score]"
+        },
+        {
+          "id": "A",
+          "description": "the dog barks at the cat",
+          "_vectors": {
+            "animal": [
+              0.9,
+              0.8,
+              0.05
+            ]
+          },
+          "_federation": {
+            "indexUid": "vectors-sentiment",
+            "sourceQuery": 1,
+            "weightedRankingScore": 0.8297949433326721
+          },
+          "_rankingScore": "[score]"
+        },
+        {
+          "id": "D",
+          "description": "the little boy pets the puppy",
+          "_vectors": {
+            "animal": [
+              0.8,
+              0.09,
+              0.8
+            ]
+          },
+          "_federation": {
+            "indexUid": "vectors-sentiment",
+            "sourceQuery": 1,
+            "weightedRankingScore": 0.18887794017791748
+          },
+          "_rankingScore": "[score]"
+        }
+      ],
+      "processingTimeMs": "[time]",
+      "limit": 20,
+      "offset": 0,
+      "estimatedTotalHits": 8,
+      "semanticHitCount": 8
     }
     "###);
 }
