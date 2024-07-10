@@ -41,6 +41,8 @@ async fn stats() {
     assert!(response["indexes"].get("test").is_some());
     assert_eq!(response["indexes"]["test"]["numberOfDocuments"], 0);
     assert!(response["indexes"]["test"]["isIndexing"] == false);
+    assert!(response["indexes"]["test"].get("databaseSize").is_some());
+    assert!(response["indexes"]["test"].get("usedDatabaseSize").is_some());
 
     let documents = json!([
         {
@@ -73,4 +75,6 @@ async fn stats() {
     assert_eq!(response["indexes"]["test"]["fieldDistribution"]["id"], 2);
     assert_eq!(response["indexes"]["test"]["fieldDistribution"]["name"], 1);
     assert_eq!(response["indexes"]["test"]["fieldDistribution"]["age"], 1);
+    assert!(response["indexes"]["test"]["databaseSize"].as_u64().unwrap() > 0);
+    assert!(response["indexes"]["test"]["usedDatabaseSize"].as_u64().unwrap() > 0);
 }

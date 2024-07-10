@@ -1,5 +1,5 @@
 use std::convert::Infallible;
-
+use std::os::linux::raw::stat;
 use actix_web::web::Data;
 use actix_web::{web, HttpRequest, HttpResponse};
 use deserr::actix_web::{AwebJson, AwebQueryParameter};
@@ -256,7 +256,10 @@ pub struct IndexStats {
     pub is_indexing: bool,
     /// Association of every field name with the number of times it occurs in the documents.
     pub field_distribution: FieldDistribution,
+    /// Database size in bytes
     pub database_size: u64,
+    /// Used database size in bytes
+    pub used_database_size: u64,
 }
 
 impl From<index_scheduler::IndexStats> for IndexStats {
@@ -265,7 +268,8 @@ impl From<index_scheduler::IndexStats> for IndexStats {
             number_of_documents: stats.inner_stats.number_of_documents,
             is_indexing: stats.is_indexing,
             field_distribution: stats.inner_stats.field_distribution,
-            database_size: stats.inner_stats.database_size
+            database_size: stats.inner_stats.database_size,
+            used_database_size: stats.inner_stats.used_database_size
         }
     }
 }
