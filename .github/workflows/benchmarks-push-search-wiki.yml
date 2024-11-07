@@ -15,7 +15,7 @@ jobs:
     runs-on: benchmarks
     steps:
       - uses: actions/checkout@v3
-      - uses: helix-editor/rust-toolchain@v1
+      - uses: dtolnay/rust-toolchain@1.79
         with:
           profile: minimal
 
@@ -40,7 +40,7 @@ jobs:
       # Run benchmarks
       - name: Run benchmarks - Dataset ${BENCH_NAME} - Branch ${{ steps.current_branch.outputs.name }} - Commit ${{ steps.commit_sha.outputs.short }}
         run: |
-          cd benchmarks
+          cd crates/benchmarks
           cargo bench --bench ${BENCH_NAME} -- --save-baseline ${{ steps.file.outputs.basename }}
 
       # Generate critcmp files
